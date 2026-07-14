@@ -8,6 +8,19 @@ import numpy as np
 from collections import deque
 import mne
 
+try:
+    from mmsi_core_wrapper import MMSICoreEngineWrapper
+    HAS_CORE = True
+except ImportError:
+    HAS_CORE = False
+
+
+def _compute_d_alpha_fallback(cov_matrix):
+    eigs = np.maximum(np.linalg.eigvalsh(cov_matrix), 0)
+    sum_l = np.sum(eigs)
+    sum_l_sq = np.sum(eigs ** 2)
+    return (sum_l ** 2) / sum_l_sq if sum_l_sq > 0 else 0.0
+
 
 def run_headless_lsl_stream(duration_sec=10):
     print("[HEADLESS LSL] Initialisiere Offline-Replay-Streamer...")
@@ -24,6 +37,17 @@ def run_headless_lsl_stream(duration_sec=10):
     d_target = 1.12
     trigger_threshold = 1.32
 
+    core_engine = None
+    if HAS_CORE:
+        try:
+            core_engine = MMSICoreEngineWrapper(license_key="ACADEMIC-TEST-KEY")
+            print("[HEADLESS LSL] Proprietäre Core-Engine geladen.")
+        except Exception as e:
+            print(f"[HEADLESS LSL] Core-Engine nicht verfügbar ({e}). Fallback: Pure-Python.")
+            core_engine = None
+    else:
+        print("[HEADLESS LSL] Wrapper nicht importierbar. Fallback: Pure-Python.")
+
     print(f"[HEADLESS LSL] Starte Live-Simulation ({duration_sec}s Stream)...")
     print("-" * 65)
 
@@ -36,11 +60,11 @@ def run_headless_lsl_stream(duration_sec=10):
         if len(buffer) == buffer_size and idx % int(sfreq * 0.25) == 0:
             window_data = np.array(buffer).T
             cov = np.cov(window_data)
-            eigs = np.maximum(np.linalg.eigvalsh(cov), 0)
 
-            sum_l = np.sum(eigs)
-            sum_l_sq = np.sum(eigs ** 2)
-            d_alpha = (sum_l ** 2) / sum_l_sq if sum_l_sq > 0 else 0.0
+            if core_engine is not None:
+                d_alpha = core_engine.compute_d_alpha(cov)
+            else:
+                d_alpha = _compute_d_alpha_fallback(cov)
 
             if d_alpha <= trigger_threshold:
                 status = "TS_SINGULARITY (TRIGGER ACTIVE)"

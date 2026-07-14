@@ -12,6 +12,12 @@ import pyqtgraph as pg
 import mne
 
 try:
+    from mmsi_core_wrapper import MMSICoreEngineWrapper
+    HAS_CORE = True
+except ImportError:
+    HAS_CORE = False
+
+try:
     from pylsl import StreamOutlet, StreamInfo
     HAS_LSL = True
 except ImportError:
@@ -54,6 +60,19 @@ class MMSIRealTimeEngine:
         self.d_baseline = 3.18
         self.d_target = 1.12
 
+        self.core_engine = None
+        if HAS_CORE:
+            try:
+                self.core_engine = MMSICoreEngineWrapper(license_key="ACADEMIC-TEST-KEY")
+            except Exception:
+                self.core_engine = None
+
+    def _compute_d_alpha_fallback(self, cov_matrix):
+        eigenvals = np.maximum(np.linalg.eigvalsh(cov_matrix), 0)
+        sum_l = np.sum(eigenvals)
+        sum_l_sq = np.sum(eigenvals ** 2)
+        return (sum_l ** 2) / sum_l_sq if sum_l_sq > 0 else 0.0
+
     def push_sample(self, sample):
         self.buffer.append(sample)
 
@@ -66,12 +85,12 @@ class MMSIRealTimeEngine:
 
         data = np.array(self.buffer).T
         cov_matrix = np.cov(data)
-        eigenvals = np.maximum(np.linalg.eigvalsh(cov_matrix), 0)
 
-        sum_l = np.sum(eigenvals)
-        sum_l_sq = np.sum(eigenvals ** 2)
+        if self.core_engine is not None:
+            d_alpha = self.core_engine.compute_d_alpha(cov_matrix)
+        else:
+            d_alpha = self._compute_d_alpha_fallback(cov_matrix)
 
-        d_alpha = (sum_l ** 2) / sum_l_sq if sum_l_sq > 0 else 0.0
         is_triggered = d_alpha <= self.trigger_threshold
 
         if is_triggered:

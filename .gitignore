@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+build/
+.kilo/
+data/
+*.so
+*.key
+*.pem
+*.zip
+*.pdf
